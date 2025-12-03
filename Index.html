@@ -44,7 +44,7 @@ const checkBtn = document.getElementById('checkBtn');
 checkBtn.addEventListener('click', onCheck);
 
 async function fetchSheet() {
-  const url = `https://docs.google.com/spreadsheets/d/12bSLvRl6qRZNHNbN5i_sHAE4WZKkJcKkV5o_YrQqhgA/edit?usp=drivesdk`;
+  const url = `https://docs.google.com/spreadsheets/d/12bSLvRl6qRZNHNbN5i_sHAE4WZKkJcKkV5o_YrQqhgA/export?format=csv`;
   const res = await fetch(url);
   const text = await res.text();
   const jsonText = text.replace(/^[^{]*({[\s\S]*})[^}]*$/, '$1');
