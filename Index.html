@@ -1,0 +1,168 @@
+# School-half-yearly-marksa
+Welcome 
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Student Result Checker</title>
+<style>
+  body{font-family: Arial, Helvetica, sans-serif; background:#f3f6fb; margin:0; padding:20px;}
+  .card{max-width:720px;margin:24px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 6px 18px rgba(20,30,60,0.08)}
+  h1{margin:0 0 8px}
+  label{display:block;margin-top:12px;font-weight:600}
+  input,button,select{width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1px solid #d9e2ef}
+  button{background:#2563eb;color:#fff;border:none;cursor:pointer}
+  #result{margin-top:18px}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{border:1px solid #eee;padding:8px;text-align:left}
+  .muted{color:#6b7280;font-size:14px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Student Result Checker</h1>
+    <p class="muted">Class + Roll number daalein — result Google Sheet se live fetch hoga.</p>
+
+    <label for="classIn">Class</label>
+    <input id="classIn" type="number" placeholder="e.g. 9">
+
+    <label for="rollIn">Roll number</label>
+    <input id="rollIn" type="number" placeholder="e.g. 12">
+
+    <button id="checkBtn">Check Result</button>
+
+    <div id="result"></div>
+    <p class="muted" style="margin-top:14px">thanks for visiting</p>
+  </div>
+
+<script>
+const sheetId = '12bSLvRl6qRZNHNbN5i_sHAE4WZKkJcKkV5o_YrQqhgA';
+const gid = '0';
+
+const checkBtn = document.getElementById('checkBtn');
+checkBtn.addEventListener('click', onCheck);
+
+async function fetchSheet() {
+  const url = `https://docs.google.com/spreadsheets/d/12bSLvRl6qRZNHNbN5i_sHAE4WZKkJcKkV5o_YrQqhgA/edit?usp=drivesdk`;
+  const res = await fetch(url);
+  const text = await res.text();
+  const jsonText = text.replace(/^[^{]*({[\s\S]*})[^}]*$/, '$1');
+  const data = JSON.parse(jsonText);
+  return data.table;
+}
+
+function tableToObjects(table) {
+  const cols = table.cols.map(c => (c.label || c.id || '').toString().trim());
+  const rows = table.rows.map(r => {
+    const obj = {};
+    for (let i = 0; i < cols.length; i++) {
+      let cell = r.c[i];
+      obj[cols[i] || `col${i}`] = cell ? (cell.v === null ? '' : cell.v) : '';
+    }
+    return obj;
+  });
+  return { cols, rows };
+}
+
+function normalizeKey(k) {
+  return k.toString().trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function guessMapColumns(cols) {
+  const map = {};
+  const norm = cols.map(c => ({orig:c, n:normalizeKey(c)}));
+  for(const c of norm){
+    if(!map.class && /(class|grade)/.test(c.n)) map.class = c.orig;
+    else if(!map.roll && /(roll|roll_number|rollno|roll_no|rn)/.test(c.n)) map.roll = c.orig;
+    else if(!map.name && /(name|student_name|student)/.test(c.n)) map.name = c.orig;
+  }
+  const subjects = [];
+  const skip = new Set(Object.values(map));
+  for(const c of norm){
+    if(skip.has(c.orig)) continue;
+    if(/(math|maths|mathematics|science|english|hindi|social|sst|computer)/.test(c.n) ||
+       /(^\d+$)/.test(c.n) || c.orig.length>0 ) {
+      subjects.push(c.orig);
+    }
+  }
+  map.subjects = subjects;
+  return map;
+}
+
+function calcTotalPercentGrade(obj, subjects) {
+  let total = 0, count = 0;
+  subjects.forEach(s => {
+    const v = obj[s];
+    const num = (v === '' || v === null) ? NaN : Number(v);
+    if(!isNaN(num)) { total += num; count++; }
+  });
+  const maxTotal = count * 100;
+  const percent = (maxTotal>0) ? (total/maxTotal)*100 : 0;
+  let grade = 'D';
+  if(percent >= 90) grade = 'A+';
+  else if(percent >= 80) grade = 'A';
+  else if(percent >= 70) grade = 'B+';
+  else if(percent >= 60) grade = 'B';
+  else if(percent >= 50) grade = 'C';
+  return { total, percent: Math.round(percent*100)/100, grade };
+}
+
+async function onCheck(){
+  const cls = document.getElementById('classIn').value.trim();
+  const roll = document.getElementById('rollIn').value.trim();
+  if(!cls || !roll){ alert('Please enter class and roll'); return; }
+
+  document.getElementById('result').innerHTML = '<p class="muted">Fetching result...</p>';
+
+  try {
+    const table = await fetchSheet();
+    const { cols, rows } = tableToObjects(table);
+    const map = guessMapColumns(cols);
+
+    const found = rows.find(r => {
+      const rclass = String(r[map.class] ?? '').trim();
+      const rroll = String(r[map.roll] ?? '').trim();
+      return rclass === String(cls) && rroll === String(roll);
+    });
+
+    if(!found){
+      document.getElementById('result').innerHTML = '<p style="color:#b91c1c">Result not found. Teacher se sheet check karwayein.</p>';
+      return;
+    }
+
+    const name = found[map.name] || 'Student';
+    const subjects = map.subjects.filter(s => s && !(s.toLowerCase && ['total','percentage','percent','grade','result','teacher','date'].includes(s.toLowerCase())));
+    const calc = calcTotalPercentGrade(found, subjects);
+
+    let html = `<h3>${name}</h3><p>Class ${cls} • Roll ${roll}</p>`;
+    html += '<table><tr><th>Subject</th><th>Marks</th></tr>';
+    subjects.forEach(s => {
+      html += `<tr><td>${s}</td><td>${(found[s]===undefined||found[s]==='')?'-':found[s]}</td></tr>`;
+    });
+    html += `</table>`;
+    html += `<p><strong>Total:</strong> ${calc.total} &nbsp; <strong>Percent:</strong> ${calc.percent}% &nbsp; <strong>Grade:</strong> ${calc.grade}</p>`;
+
+    if(found['Total Marks'] || found['total'] || found['Total']) {
+      const t = found['Total Marks'] || found['total'] || found['Total'];
+      html += `<p>Sheet Total: ${t}</p>`;
+    }
+    if(found['Percentage'] || found['Percent'] || found['percentage']) {
+      const p = found['Percentage'] || found['Percent'] || found['percentage'];
+      html += `<p>Sheet Percent: ${p}%</p>`;
+    }
+    if(found['Result Status'] || found['Grade'] || found['grade']) {
+      const g = found['Result Status'] || found['Grade'] || found['grade'];
+      html += `<p>Sheet Result: ${g}</p>`;
+    }
+
+    document.getElementById('result').innerHTML = html;
+
+  } catch(err) {
+    console.error(err);
+    document.getElementById('result').innerHTML = '<p style="color:#b91c1c">Error fetching sheet. Make sure the sheet is shared (Anyone with link can view) or is published.</p>';
+  }
+}
+</script>
+</body>
+  </html>
